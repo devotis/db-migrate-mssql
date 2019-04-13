@@ -1,5 +1,5 @@
 {
-  "name": "db-migrate-mssql",
+  "name": "@devotis/db-migrate-mssql",
   "version": "1.0.0",
   "description": "A mssql driver for db-migrate",
   "main": "index.js",
