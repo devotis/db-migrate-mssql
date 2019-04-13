@@ -15,17 +15,17 @@ var MssqlDriver = Base.extend({
     this.schema = schema || 'dbo';
   },
 
-  startMigration: function (cb) {
-    if (!this.internals.notransactions) {
-      return this.runSql('BEGIN;').nodeify(cb);
-    } else return Promise.resolve().nodeify(cb);
-  },
-
-  endMigration: function (cb) {
-    if (!this.internals.notransactions) {
-      return this.runSql('COMMIT;').nodeify(cb);
-    } else return Promise.resolve(null).nodeify(cb);
-  },
+  // startMigration: function (cb) {
+  //   if (!this.internals.notransactions) {
+  //     return this.runSql('BEGIN').nodeify(cb);
+  //   } else return Promise.resolve().nodeify(cb);
+  // },
+  //
+  // endMigration: function (cb) {
+  //   if (!this.internals.notransactions) {
+  //     return this.runSql('COMMIT').nodeify(cb);
+  //   } else return Promise.resolve(null).nodeify(cb);
+  // },
 
   createColumnDef: function (name, spec, options, tableName) {
     var type =
@@ -187,7 +187,6 @@ var MssqlDriver = Base.extend({
     )
       .then(
         function (result) {
-          console.log(JSON.stringify(result));
           if (result && result.recordset && result.recordset.length < 1) {
             return this.createTable([this.schema, this.internals.migrationTable], options);
           } else {
@@ -483,18 +482,15 @@ var MssqlDriver = Base.extend({
   runSql: function () {
     var callback;
     var minLength = 1;
-    var lengthWithoutCallback;
     var params;
 
     if (typeof arguments[arguments.length - 1] === 'function') {
       minLength = 2;
-      lengthWithoutCallback = arguments.length - 1;
       callback = arguments[arguments.length - 1];
-    } else {
-      lengthWithoutCallback = arguments.length;
     }
 
     params = arguments;
+
     if (params.length > minLength) {
       // We have parameters, but db-migrate uses "?" for param substitutions.
       // MSSQL uses "@paramname1", "@paramname2", etc so fix up the "?" into "$1", etc
@@ -515,11 +511,12 @@ var MssqlDriver = Base.extend({
     return new Promise(
       function (resolve, reject) {
         const request = new this.connection.Request();
-        for (let i = 1; i < lengthWithoutCallback; i++) {
-          console.log(`Defining param: input_${i} with ${params[i]}`);
-          request.input(`input_${i}`, params[i]);
+
+        if (params[1]) {
+          for (let i = 0; i < params[1].length; i++) {
+            request.input(`input_${i + 1}`, params[1][i]);
+          }
         }
-        console.log(`And executing query: ${params[0]}...`);
 
         request.query(params[0]).then(result => {
           resolve(result.recordset);
@@ -532,8 +529,6 @@ var MssqlDriver = Base.extend({
     var params = arguments;
 
     this.log.sql.apply(null, params);
-
-    console.log('all', params[0]);
 
     return new Promise(
       function (resolve, reject) {
