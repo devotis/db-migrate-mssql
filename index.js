@@ -1,10 +1,10 @@
 var util = require('util');
-var pg = require('pg');
+var mssql = require('mssql');
 var semver = require('semver');
 var Base = require('db-migrate-base');
 var Promise = require('bluebird');
 
-var PgDriver = Base.extend({
+var MssqlDriver = Base.extend({
   init: function (connection, schema, intern) {
     this.log = intern.mod.log;
     this.type = intern.mod.type;
@@ -12,7 +12,7 @@ var PgDriver = Base.extend({
     this._super(intern);
     this.internals = intern;
     this.connection = connection;
-    this.schema = schema || 'public';
+    this.schema = schema || 'dbo';
   },
 
   startMigration: function (cb) {
@@ -28,12 +28,6 @@ var PgDriver = Base.extend({
   },
 
   createColumnDef: function (name, spec, options, tableName) {
-    // add support for datatype timetz, timestamptz
-    // https://www.postgresql.org/docs/9.5/static/datatype.html
-    spec.type = spec.type.replace(/^(time|timestamp)tz$/, function ($, type) {
-      spec.timezone = true;
-      return type;
-    });
     var type =
       spec.primaryKey && spec.autoIncrement ? '' : this.mapDataType(spec.type);
     var len = spec.length ? util.format('(%s)', spec.length) : '';
@@ -52,6 +46,10 @@ var PgDriver = Base.extend({
       callbacks: constraint.callbacks,
       constraints: [name, type, len, constraint.constraints].join(' ')
     };
+  },
+
+  escapeDDL: function (str) {
+    return `[${str}]`;
   },
 
   _translateSpecialDefaultValues: function (
@@ -76,11 +74,11 @@ var PgDriver = Base.extend({
       case 'jsonb':
         return str.toUpperCase();
       case this.type.STRING:
-        return 'VARCHAR';
+        return 'NVARCHAR';
       case this.type.DATE_TIME:
-        return 'TIMESTAMP';
+        return 'DATETIME2';
       case this.type.BLOB:
-        return 'BYTEA';
+        return 'VARBINARY(MAX)';
     }
     return this._super(str);
   },
@@ -120,7 +118,7 @@ var PgDriver = Base.extend({
     }
 
     this.runSql(
-      util.format('CREATE %s SEQUENCE `%s` %s', temp, sqName, spec),
+      util.format('CREATE %s SEQUENCE [%s] %s', temp, sqName, spec),
       callback
     );
   },
@@ -132,12 +130,12 @@ var PgDriver = Base.extend({
           'Ignore database option, not available with postgres. Use schema instead!'
         );
         this.runSql(
-          util.format('SET search_path TO `%s`', options.database),
+          util.format('USE [%s]', options.database),
           callback
         );
       }
     } else if (typeof options === 'string') {
-      this.runSql(util.format('SET search_path TO `%s`', options), callback);
+      this.runSql(util.format('USE [%s]', options), callback);
     } else callback(null);
   },
 
@@ -154,7 +152,7 @@ var PgDriver = Base.extend({
     }
 
     this.runSql(
-      util.format('DROP SEQUENCE %s `%s` %s', ifExists, dbName, rule),
+      util.format('DROP SEQUENCE %s [%s] %s', ifExists, dbName, rule),
       callback
     );
   },
@@ -174,83 +172,15 @@ var PgDriver = Base.extend({
       ifNotExists: false
     };
 
-    return this.all('show server_version_num')
+    return this.all(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_name = '${this.internals.migrationTable}'
+        AND table_schema = '${this.schema}'`
+    )
       .then(
         function (result) {
-          if (result && result.length > 0 && result[0].server_version_num) {
-            var version = result[0].server_version_num;
-            var major = Math.floor(version / 10000);
-            var minor = Math.floor((version - major * 10000) / 100);
-            var patch = Math.floor(version - major * 10000 - minor * 100);
-            version = major + '.' + minor + '.' + patch;
-            options.ifNotExists = semver.gte(version, '9.1.0');
-          }
-
-          // Get the current search path so we can change the current schema
-          // if necessary
-          return this.all('SHOW search_path');
-        }.bind(this)
-      )
-      .catch(
-        // not all DBs support server_version_num, fall back to server_version
-        function () {
-          return this.all('show server_version').then(
-            function (result) {
-              if (result && result.length > 0 && result[0].server_version) {
-                var version = result[0].server_version;
-                // handle versions like “10.2 (Ubuntu 10.2)”
-                version = version.split(' ')[0];
-                // handle missing patch numbers
-                if (version.split('.').length !== 3) {
-                  version += '.0';
-                }
-                options.ifNotExists = semver.gte(version, '9.1.0');
-                // Get the current search path so we can change the current
-                // schema if necessary
-                return this.all('SHOW search_path');
-              }
-            }.bind(this)
-          );
-        }.bind(this)
-      )
-      .then(
-        function (result) {
-          var searchPath;
-          var searchPathes = result[0].search_path.split(',');
-
-          for (var i = 0; i < searchPathes.length; ++i) {
-            if (searchPathes[i].indexOf('"') !== 0) {
-              searchPathes[i] = '"' + searchPathes[i].trim() + '"';
-            }
-          }
-
-          result[0].search_path = searchPathes.join(',');
-
-          // if the user specified a different schema, prepend it to the
-          // search path. This will make all DDL/DML/SQL operate on the specified
-          // schema.
-          if (this.schema === 'public') {
-            searchPath = result[0].search_path;
-          } else {
-            searchPath = '"' + this.schema + '",' + result[0].search_path;
-          }
-
-          return this.all('SET search_path TO ' + searchPath);
-        }.bind(this)
-      )
-      .then(
-        function () {
-          return this.all(
-            "SELECT table_name FROM information_schema.tables WHERE table_name = '" +
-              this.internals.migrationTable +
-              "'" +
-              (this.schema ? " AND table_schema = '" + this.schema + "'" : '')
-          );
-        }.bind(this)
-      )
-      .then(
-        function (result) {
-          if (result && result && result.length < 1) {
+          if (result && result.length < 1) {
             return this.createTable(this.internals.migrationTable, options);
           } else {
             return Promise.resolve();
@@ -275,51 +205,15 @@ var PgDriver = Base.extend({
       ifNotExists: false
     };
 
-    return this.all('select version() as version')
+    return this.all(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_name = '${this.internals.seedTable}'
+        AND table_schema = '${this.schema}'`
+    )
       .then(
         function (result) {
-          if (result && result && result.length > 0 && result[0].version) {
-            var version = result[0].version;
-            var match = version.match(/\d+\.\d+\.\d+/);
-            if (match && match[0] && semver.gte(match[0], '9.1.0')) {
-              options.ifNotExists = true;
-            }
-          }
-
-          // Get the current search path so we can change the current schema
-          // if necessary
-          return this.all('SHOW search_path');
-        }.bind(this)
-      )
-      .then(
-        function (result) {
-          var searchPath;
-
-          // if the user specified a different schema, prepend it to the
-          // search path. This will make all DDL/DML/SQL operate on the specified
-          // schema.
-          if (this.schema === 'public') {
-            searchPath = result[0].search_path;
-          } else {
-            searchPath = '"' + this.schema + '",' + result[0].search_path;
-          }
-
-          return this.all('SET search_path TO ' + searchPath);
-        }.bind(this)
-      )
-      .then(
-        function () {
-          return this.all(
-            "SELECT table_name FROM information_schema.tables WHERE table_name = '" +
-              this.internals.seedTable +
-              "'" +
-              (this.schema ? " AND table_schema = '" + this.schema + "'" : '')
-          );
-        }.bind(this)
-      )
-      .then(
-        function (result) {
-          if (result && result && result.length < 1) {
+          if (result && result.length < 1) {
             return this.createTable(this.internals.seedTable, options);
           } else {
             return Promise.resolve();
@@ -334,13 +228,9 @@ var PgDriver = Base.extend({
     var callbacks = [];
     var cb;
 
-    if (spec.timezone) {
-      constraint.push('WITH TIME ZONE');
-    }
-
     if (spec.primaryKey) {
       if (spec.autoIncrement) {
-        constraint.push('SERIAL');
+        constraint.push('IDENTITY');
       }
 
       if (options.emitPrimaryKey) {
@@ -371,20 +261,6 @@ var PgDriver = Base.extend({
     if (spec.foreignKey) {
       cb = this.bindForeignKey(tableName, columnName, spec.foreignKey);
     }
-    if (spec.comment) {
-      // TODO: create a new function addComment is not callable from here
-      callbacks.push(
-        function (tableName, columnName, comment, callback) {
-          var sql = util.format(
-            "COMMENT on COLUMN %s.%s IS '%s'",
-            tableName,
-            columnName,
-            comment
-          );
-          return this.runSql(sql).nodeify(callback);
-        }.bind(this, tableName, columnName, spec.comment)
-      );
-    }
 
     return {
       foreignKey: cb,
@@ -395,7 +271,8 @@ var PgDriver = Base.extend({
 
   renameTable: function (tableName, newTableName, callback) {
     var sql = util.format(
-      'ALTER TABLE "%s" RENAME TO "%s"',
+      'ALTER TABLE [%s].[%s] RENAME TO [%s]',
+      this.schema,
       tableName,
       newTableName
     );
@@ -404,7 +281,8 @@ var PgDriver = Base.extend({
 
   removeColumn: function (tableName, columnName, callback) {
     var sql = util.format(
-      'ALTER TABLE "%s" DROP COLUMN "%s"',
+      'ALTER TABLE [%s].[%s] DROP COLUMN [%s]',
+      this.schema,
       tableName,
       columnName
     );
@@ -413,12 +291,23 @@ var PgDriver = Base.extend({
   },
 
   renameColumn: function (tableName, oldColumnName, newColumnName, callback) {
-    var sql = util.format(
-      'ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s"',
-      tableName,
-      oldColumnName,
-      newColumnName
-    );
+    var sql = `
+      IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE name = '${oldColumnName}'
+          AND object_name(object_id) = '${this.escapeDDL(tableName)}'
+      ) AND NOT EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE name = '${newColumnName}'
+          AND object_name(object_id) = '${this.escapeDDL(tableName)}'
+      )
+        EXEC sp_RENAME
+          '${this.escapeDDL(this.schema)}.${this.escapeDDL(tableName)}.${oldColumnName}',
+          '${newColumnName}',
+          'COLUMN';
+    `;
     return this.runSql(sql).nodeify(callback);
   },
 
@@ -428,7 +317,8 @@ var PgDriver = Base.extend({
     function setNotNull () {
       var setOrDrop = columnSpec.notNull === true ? 'SET' : 'DROP';
       var sql = util.format(
-        'ALTER TABLE "%s" ALTER COLUMN "%s" %s NOT NULL',
+        'ALTER TABLE [%s].[%s] ALTER COLUMN [%s] %s NOT NULL',
+        this.schema,
         tableName,
         columnName,
         setOrDrop
@@ -447,7 +337,8 @@ var PgDriver = Base.extend({
 
       if (columnSpec.unique === true) {
         sql = util.format(
-          'ALTER TABLE "%s" ADD CONSTRAINT "%s" UNIQUE ("%s")',
+          'ALTER TABLE [%s].[%s] ADD CONSTRAINT [%s] UNIQUE ([%s])',
+          this.schema,
           tableName,
           constraintName,
           columnName
@@ -455,7 +346,8 @@ var PgDriver = Base.extend({
         return this.runSql(sql).nodeify(setDefaultValue.bind(this));
       } else if (columnSpec.unique === false) {
         sql = util.format(
-          'ALTER TABLE "%s" DROP CONSTRAINT "%s"',
+          'ALTER TABLE [%s].[%s] DROP CONSTRAINT [%s]',
+          this.schema,
           tableName,
           constraintName
         );
@@ -480,14 +372,16 @@ var PgDriver = Base.extend({
           defaultValue = columnSpec.defaultValue;
         }
         sql = util.format(
-          'ALTER TABLE "%s" ALTER COLUMN "%s" SET DEFAULT %s',
+          'ALTER TABLE [%s].[%s] ALTER COLUMN [%s] SET DEFAULT %s',
+          this.schema,
           tableName,
           columnName,
           defaultValue
         );
       } else {
         sql = util.format(
-          'ALTER TABLE "%s" ALTER COLUMN "%s" DROP DEFAULT',
+          'ALTER TABLE [%s].[%s] ALTER COLUMN [%s] DROP DEFAULT',
+          this.schema,
           tableName,
           columnName
         );
@@ -503,7 +397,7 @@ var PgDriver = Base.extend({
           columnSpec.using !== undefined
             ? columnSpec.using
             : util.format(
-              'USING "%s"::%s',
+              'USING [%s]::%s',
               columnName,
               this.mapDataType(columnSpec.type)
             );
@@ -511,7 +405,8 @@ var PgDriver = Base.extend({
           ? util.format('(%s)', columnSpec.length)
           : '';
         var sql = util.format(
-          'ALTER TABLE "%s" ALTER COLUMN "%s" TYPE %s %s %s',
+          'ALTER TABLE [%s].[%s] ALTER COLUMN [%s] TYPE %s %s %s',
+          this.schema,
           tableName,
           columnName,
           this.mapDataType(columnSpec.type),
@@ -540,7 +435,8 @@ var PgDriver = Base.extend({
       return '"' + fieldMapping[key] + '"';
     });
     var sql = util.format(
-      'ALTER TABLE "%s" ADD CONSTRAINT "%s" FOREIGN KEY (%s) REFERENCES "%s" (%s) ON DELETE %s ON UPDATE %s',
+      'ALTER TABLE [%s].[%s] ADD CONSTRAINT [%s] FOREIGN KEY (%s) REFERENCES [%s] (%s) ON DELETE %s ON UPDATE %s',
+      this.schema,
       tableName,
       keyName,
       this.quoteDDLArr(columns),
@@ -554,7 +450,8 @@ var PgDriver = Base.extend({
 
   removeForeignKey: function (tableName, keyName, callback) {
     var sql = util.format(
-      'ALTER TABLE "%s" DROP CONSTRAINT "%s"',
+      'ALTER TABLE [%s].[%s] DROP CONSTRAINT [%s]',
+      this.schema,
       tableName,
       keyName
     );
@@ -578,21 +475,25 @@ var PgDriver = Base.extend({
   runSql: function () {
     var callback;
     var minLength = 1;
+    var lengthWithoutCallback;
     var params;
 
     if (typeof arguments[arguments.length - 1] === 'function') {
       minLength = 2;
+      lengthWithoutCallback = arguments.length - 1;
       callback = arguments[arguments.length - 1];
+    } else {
+      lengthWithoutCallback = arguments.length;
     }
 
     params = arguments;
     if (params.length > minLength) {
       // We have parameters, but db-migrate uses "?" for param substitutions.
-      // PG uses "$1", "$2", etc so fix up the "?" into "$1", etc
+      // MSSQL uses "@paramname1", "@paramname2", etc so fix up the "?" into "$1", etc
       var param = params[0].split('?');
       var newParam = [];
       for (var i = 0; i < param.length - 1; i++) {
-        newParam.push(param[i], '$' + (i + 1));
+        newParam.push(param[i], '@input_' + (i + 1));
       }
       newParam.push(param[param.length - 1]);
       params[0] = newParam.join('');
@@ -605,14 +506,14 @@ var PgDriver = Base.extend({
 
     return new Promise(
       function (resolve, reject) {
-        var prCB = function (err, data) {
-          return err ? reject(err) : resolve(data);
-        };
+        const request = new this.connection.Request();
+        for (let i = 1; i < lengthWithoutCallback; i++) {
+          console.log(`Defining param: input_${i} with ${params[i]}`);
+          request.input(`input_${i}`, params[i]);
+        }
+        console.log(`And executing query: ${params[0]}...`);
 
-        if (minLength === 2) params[params.length - 1] = prCB;
-        else params[params.length++] = prCB;
-
-        this.connection.query.apply(this.connection, params);
+        request.query(params[0]).then(resolve, reject);
       }.bind(this)
     ).nodeify(callback);
   },
@@ -624,13 +525,9 @@ var PgDriver = Base.extend({
 
     return new Promise(
       function (resolve, reject) {
-        var prCB = function (err, data) {
-          return err ? reject(err) : resolve(data);
-        };
+        const request = new this.connection.Request();
 
-        this.connection.query(params[0], function (err, result) {
-          prCB(err, result ? result.rows : result);
-        });
+        request.query(params[0]).then(resolve, reject);
       }.bind(this)
     ).nodeify(params[1]);
   },
@@ -643,22 +540,20 @@ var PgDriver = Base.extend({
   }
 });
 
-Promise.promisifyAll(PgDriver);
+Promise.promisifyAll(MssqlDriver);
 
 exports.connect = function (config, intern, callback) {
-  if (config.native) {
-    pg = pg.native;
-  }
   if (!config.database) {
-    config.database = 'postgres';
+    config.database = 'mssql';
   }
-  var db = config.db || new pg.Client(config);
-  db.connect(function (err) {
-    if (err) {
+  var db = config.db || mssql;
+  db.connect(config)
+    .then(() => {
+      callback(null, new MssqlDriver(db, config.schema, intern));
+    })
+    .catch(err => {
       callback(err);
-    }
-    callback(null, new PgDriver(db, config.schema, intern));
-  });
+    });
 };
 
-exports.base = PgDriver;
+exports.base = MssqlDriver;
