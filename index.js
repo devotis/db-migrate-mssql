@@ -5,13 +5,13 @@ var Base = require('db-migrate-base');
 var Promise = require('bluebird');
 
 var MssqlDriver = Base.extend({
-  init: function (connection, schema, intern) {
+  init: function (pool, schema, intern) {
     this.log = intern.mod.log;
     this.type = intern.mod.type;
     this._escapeString = "'";
     this._super(intern);
     this.internals = intern;
-    this.connection = connection;
+    this.pool = pool;
     this.schema = schema || 'dbo';
   },
 
@@ -510,7 +510,7 @@ var MssqlDriver = Base.extend({
 
     return new Promise(
       function (resolve, reject) {
-        const request = new this.connection.Request();
+        const request = this.pool.request();
 
         if (params[1]) {
           for (let i = 0; i < params[1].length; i++) {
@@ -532,7 +532,7 @@ var MssqlDriver = Base.extend({
 
     return new Promise(
       function (resolve, reject) {
-        const request = new this.connection.Request();
+        const request = this.pool.request();
 
         request.query(params[0]).then(result => {
           resolve(result.recordset);
@@ -542,10 +542,17 @@ var MssqlDriver = Base.extend({
   },
 
   close: function (callback) {
-    this.connection.close();
+    const promise = new Promise((resolve) => {
+      // circumvent Idle connections not being closed by the pool #457
+      // https://github.com/tediousjs/node-mssql/issues/457
+      setTimeout(resolve, 200);
+    }).then(() => {
+      return this.pool.close();
+    });
+
     if (typeof callback === 'function') {
-      return Promise.resolve().nodeify(callback);
-    } else return Promise.resolve();
+      return Promise.resolve(promise).nodeify(callback);
+    } else return Promise.resolve(promise);
   },
 
   /**
@@ -608,10 +615,10 @@ exports.connect = function (config, intern, callback) {
   }
   config.server = config.server || config.host;
 
-  var db = config.db || mssql;
+  var db = config.db || new mssql.ConnectionPool(config);
 
-  db.connect(config)
-    .then(() => {
+  db.connect()
+    .then(pool => {
       callback(null, new MssqlDriver(db, config.schema, intern));
     })
     .catch(err => {
