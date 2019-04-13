@@ -1,6 +1,5 @@
 var util = require('util');
 var mssql = require('mssql');
-var semver = require('semver');
 var Base = require('db-migrate-base');
 var Promise = require('bluebird');
 
