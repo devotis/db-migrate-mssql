@@ -1,13 +1,17 @@
-[![Build Status](https://travis-ci.org/db-migrate/pg.svg?branch=master)](https://travis-ci.org/db-migrate/pg)
-[![Dependency Status](https://david-dm.org/db-migrate/pg.svg)](https://david-dm.org/db-migrate/pg)
-[![devDependency Status](https://david-dm.org/db-migrate/pg/dev-status.svg)](https://david-dm.org/db-migrate/pg#info=devDependencies)
+[![Build Status](https://travis-ci.org/devotis/db-migrate-mssql.svg?branch=master)](https://travis-ci.org/devotis/db-migrate-mssql)
+[![Dependency Status](https://david-dm.org/devotis/db-migrate-mssql.svg)](https://david-dm.org/devotis/db-migrate-mssql)
+[![devDependency Status](https://david-dm.org/devotis/db-migrate-mssql/dev-status.svg)](https://david-dm.org/devotis/db-migrate-mssql#info=devDependencies)
 
 
-# pg
-postgres driver for db-migrate
+# db-migrate-mssql
+mssql driver for db-migrate
 
 ## Installation
 
 ```
-npm install --save db-migrate-pg
+yarn add @devotis/db-migrate-mssql
+```
+
+```
+npm install --save @devotis/db-migrate-mssql
 ```
