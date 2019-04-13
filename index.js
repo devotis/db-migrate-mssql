@@ -37,8 +37,8 @@ var MssqlDriver = Base.extend({
       tableName,
       name
     );
-    if (name.charAt(0) !== '"') {
-      name = '"' + name + '"';
+    if (name.charAt(0) !== '[') {
+      name = `[${name}]`;
     }
 
     return {
@@ -48,8 +48,15 @@ var MssqlDriver = Base.extend({
     };
   },
 
-  escapeDDL: function (str) {
-    return `[${str}]`;
+  escapeDDL: function (strOrArray) {
+    // if its an array we're going to assume it's: [schemaName, tableName]
+    if (Array.isArray(strOrArray)) {
+      if (strOrArray.length === 2) {
+        return `[${strOrArray[0]}].[${strOrArray[1]}]`;
+      }
+      return `[${strOrArray[0]}]`;
+    }
+    return `[${strOrArray}]`;
   },
 
   _translateSpecialDefaultValues: function (
@@ -180,8 +187,9 @@ var MssqlDriver = Base.extend({
     )
       .then(
         function (result) {
-          if (result && result.length < 1) {
-            return this.createTable(this.internals.migrationTable, options);
+          console.log(JSON.stringify(result));
+          if (result && result.recordset && result.recordset.length < 1) {
+            return this.createTable([this.schema, this.internals.migrationTable], options);
           } else {
             return Promise.resolve();
           }
@@ -214,7 +222,7 @@ var MssqlDriver = Base.extend({
       .then(
         function (result) {
           if (result && result.length < 1) {
-            return this.createTable(this.internals.seedTable, options);
+            return this.createTable([this.schema, this.internals.seedTable], options);
           } else {
             return Promise.resolve();
           }
@@ -230,7 +238,7 @@ var MssqlDriver = Base.extend({
 
     if (spec.primaryKey) {
       if (spec.autoIncrement) {
-        constraint.push('IDENTITY');
+        constraint.push('INT IDENTITY');
       }
 
       if (options.emitPrimaryKey) {
@@ -259,7 +267,7 @@ var MssqlDriver = Base.extend({
 
     // keep foreignKey for backward compatiable, push to callbacks in the future
     if (spec.foreignKey) {
-      cb = this.bindForeignKey(tableName, columnName, spec.foreignKey);
+      cb = this.bindForeignKey([this.schema, tableName], columnName, spec.foreignKey);
     }
 
     return {
@@ -513,7 +521,9 @@ var MssqlDriver = Base.extend({
         }
         console.log(`And executing query: ${params[0]}...`);
 
-        request.query(params[0]).then(resolve, reject);
+        request.query(params[0]).then(result => {
+          resolve(result.recordset);
+        }, reject);
       }.bind(this)
     ).nodeify(callback);
   },
@@ -523,20 +533,75 @@ var MssqlDriver = Base.extend({
 
     this.log.sql.apply(null, params);
 
+    console.log('all', params[0]);
+
     return new Promise(
       function (resolve, reject) {
         const request = new this.connection.Request();
 
-        request.query(params[0]).then(resolve, reject);
+        request.query(params[0]).then(result => {
+          resolve(result.recordset);
+        }, reject);
       }.bind(this)
     ).nodeify(params[1]);
   },
 
   close: function (callback) {
-    this.connection.end();
+    this.connection.close();
     if (typeof callback === 'function') {
       return Promise.resolve().nodeify(callback);
     } else return Promise.resolve();
+  },
+
+  /**
+   * Extend Base because they do not let schema to be passed
+  */
+  addMigrationRecord: function (name, callback) {
+    this.runSql(
+      'INSERT INTO ' +
+        this.escapeDDL([this.schema, this.internals.migrationTable]) +
+        ' (' +
+        this.escapeDDL('name') +
+        ', ' +
+        this.escapeDDL('run_on') +
+        ') VALUES (?, ?)',
+      [name, new Date()],
+      callback
+    );
+  },
+  addSeedRecord: function (name, callback) {
+    this.runSql(
+      'INSERT INTO ' +
+        this.escapeDDL([this.schema, this.internals.seedTable]) +
+        ' (' +
+        this.escapeDDL('name') +
+        ', ' +
+        this.escapeDDL('run_on') +
+        ') VALUES (?, ?)',
+      [name, new Date()],
+      callback
+    );
+  },
+  allLoadedMigrations: function (callback) {
+    var sql =
+      'SELECT * FROM ' +
+      this.escapeDDL([this.schema, this.internals.migrationTable]) +
+      ' ORDER BY run_on DESC, name DESC';
+    return this.all(sql, callback);
+  },
+  allLoadedSeeds: function (callback) {
+    var sql =
+      'SELECT * FROM ' +
+      this.escapeDDL([this.schema, this.internals.seedTable]) +
+      ' ORDER BY run_on DESC, name DESC';
+    return this.all(sql, callback);
+  },
+  deleteMigration: function (migrationName, callback) {
+    var sql =
+      'DELETE FROM ' +
+      this.escapeDDL([this.schema, this.internals.migrationTable]) +
+      ' WHERE name = ?';
+    this.runSql(sql, [migrationName], callback);
   }
 });
 
@@ -546,7 +611,10 @@ exports.connect = function (config, intern, callback) {
   if (!config.database) {
     config.database = 'mssql';
   }
+  config.server = config.server || config.host;
+
   var db = config.db || mssql;
+
   db.connect(config)
     .then(() => {
       callback(null, new MssqlDriver(db, config.schema, intern));
