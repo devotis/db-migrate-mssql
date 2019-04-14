@@ -186,7 +186,7 @@ var MssqlDriver = Base.extend({
     )
       .then(
         function (result) {
-          if (result && result.recordset && result.recordset.length < 1) {
+          if (result && result.length < 1) {
             return this.createTable([this.schema, this.internals.migrationTable], options);
           } else {
             return Promise.resolve();
