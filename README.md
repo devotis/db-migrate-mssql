@@ -20,4 +20,4 @@ This installs a dependency by the name of `db-migrate-mssql` ([as an alias](http
 
 `"db-migrate-mssql": "npm:@devotis/db-migrate-mssql",`
 
-So, don't do `yarn add @devotis/db-migrate-mssql` for now, and if you already did, remove the line "@devotis/db-migrate-mssql": "...", from your package.json. Once the [requested feature](https://github.com/db-migrate/node-db-migrate/issues/593#issuecomment-483039315) is added to node-db-migrate allowing you to appoint another repo as the driver, you can install as `yarn add @devotis/db-migrate-mssql`, but don't use this quite yet.
+_Note: Don't do `yarn add @devotis/db-migrate-mssql` for now, and if you already did, remove the line "@devotis/db-migrate-mssql": "...", from your package.json. Once the [requested feature](https://github.com/db-migrate/node-db-migrate/issues/593#issuecomment-483039315) is added to node-db-migrate allowing you to appoint another repo as the driver, you can install as `yarn add @devotis/db-migrate-mssql`, but don't use this quite yet._
