@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0] - 2019-10-24
 
 ### Added
-- Each migration is run within a transaction. Failed sql means migration did not happen. (PR #2) ([jpinkster])
+- Each migration is run within a transaction. Failed sql means migration did not happen. (PR #2) ([jpinkster](https://github.com/jpinkster))
 
 ## [1.0.1] - 2019-04-14
 
