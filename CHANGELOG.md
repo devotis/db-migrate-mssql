@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2019-10-24
+
+### Changed
+- Explain in readme how to install this as an alias for `db-migrate-mssq`.
+
 ## [1.1.1] - 2019-10-24
 
 ### Changed
