@@ -10,20 +10,14 @@ I started this repo from a fork of https://github.com/db-migrate/pg . Took me ab
 
 There is another db-migrate-mssql package (https://github.com/ryd0rz/db-migrate-mssql) that existed before this one. It's published on npm as `db-migrate-mssql`. That is the also the one that node-db-migrate canonically uses when configuring driver: "mssql". I'm not sure of the quality of that package. At first it wasn't working but got fixed recently supposedly.
 
-If you'd like to use this one as an alternative, make sure to do the following. Add this to your package.json and than yarn/npm install:
-
-`"db-migrate-mssql": "https://github.com/devotis/db-migrate-mssql",`
-
-So, don't do yarn add @devotis/db-migrate-mssql for now, and if you already did, remove the line "@devotis/db-migrate-mssql": "...", from your package.json.
-
 ## Installation
 
-This is how you would install and use once the feature is added to node-db-migrate that would allow you to appoint another repo as the driver. This request is formulated here: https://github.com/db-migrate/node-db-migrate/issues/593#issuecomment-483039315
+If you'd like to use this one as an alternative to the existing db-migrate-mssql, make sure to install it like this.
 
-```
-yarn add @devotis/db-migrate-mssql
-```
+`yarn add db-migrate-mssql@npm:@devotis/db-migrate-mssql`
 
-```
-npm install --save @devotis/db-migrate-mssql
-```
+This installs a dependency by the name of `db-migrate-mssql` ([as an alias](https://yarnpkg.com/lang/en/docs/cli/add/#toc-yarn-add-alias)) but with the source being `@devotis/db-migrate-mssql`. It looks like this in your package.json dependencies afterwards.
+
+`"db-migrate-mssql": "npm:@devotis/db-migrate-mssql",`
+
+So, don't do `yarn add @devotis/db-migrate-mssql` for now, and if you already did, remove the line "@devotis/db-migrate-mssql": "...", from your package.json. Once the [requested feature](https://github.com/db-migrate/node-db-migrate/issues/593#issuecomment-483039315) is added to node-db-migrate allowing you to appoint another repo as the driver, you can install as `yarn add @devotis/db-migrate-mssql`, but don't use this quite yet.
