@@ -4,27 +4,15 @@ var Base = require('db-migrate-base');
 var Promise = require('bluebird');
 
 var MssqlDriver = Base.extend({
-  init: function (pool, schema, intern) {
+  init: function (connection, schema, intern) {
     this.log = intern.mod.log;
     this.type = intern.mod.type;
     this._escapeString = "'";
     this._super(intern);
     this.internals = intern;
-    this.pool = pool;
+    this.connection = connection;
     this.schema = schema || 'dbo';
   },
-
-  // startMigration: function (cb) {
-  //   if (!this.internals.notransactions) {
-  //     return this.runSql('BEGIN').nodeify(cb);
-  //   } else return Promise.resolve().nodeify(cb);
-  // },
-  //
-  // endMigration: function (cb) {
-  //   if (!this.internals.notransactions) {
-  //     return this.runSql('COMMIT').nodeify(cb);
-  //   } else return Promise.resolve(null).nodeify(cb);
-  // },
 
   createColumnDef: function (name, spec, options, tableName) {
     var type =
@@ -509,17 +497,36 @@ var MssqlDriver = Base.extend({
 
     return new Promise(
       function (resolve, reject) {
-        const request = this.pool.request();
+        if (this.internals.notransactions) {
+          const request = new this.connection.Request();
 
-        if (params[1]) {
-          for (let i = 0; i < params[1].length; i++) {
-            request.input(`input_${i + 1}`, params[1][i]);
+          if (params[1]) {
+            for (let i = 0; i < params[1].length; i++) {
+              request.input(`input_${i + 1}`, params[1][i]);
+            }
           }
-        }
 
-        request.query(params[0]).then(result => {
-          resolve(result.recordset);
-        }, reject);
+          request.query(params[0]).then(result => {
+            resolve(result.recordset);
+          }, reject);
+        }
+        else {
+          const transaction = new this.connection.Transaction();
+          transaction.begin(() => {
+            const request = new this.connection.Request(transaction);
+
+            if (params[1]) {
+              for (let i = 0; i < params[1].length; i++) {
+                request.input(`input_${i + 1}`, params[1][i]);
+              }
+            }
+
+            request.query(params[0]).then(result => {
+              transaction.commit();
+              resolve(result.recordset);
+            }, reject);
+          })
+        }
       }.bind(this)
     ).nodeify(callback);
   },
@@ -531,7 +538,7 @@ var MssqlDriver = Base.extend({
 
     return new Promise(
       function (resolve, reject) {
-        const request = this.pool.request();
+        const request = new this.connection.Request();
 
         request.query(params[0]).then(result => {
           resolve(result.recordset);
@@ -546,7 +553,7 @@ var MssqlDriver = Base.extend({
       // https://github.com/tediousjs/node-mssql/issues/457
       setTimeout(resolve, 200);
     }).then(() => {
-      return this.pool.close();
+      return this.connection.close();
     });
 
     if (typeof callback === 'function') {
@@ -614,11 +621,10 @@ exports.connect = function (config, intern, callback) {
   }
   config.server = config.server || config.host;
 
-  var db = config.db || new mssql.ConnectionPool(config);
 
-  db.connect()
+  mssql.connect(config)
     .then(pool => {
-      callback(null, new MssqlDriver(db, config.schema, intern));
+      callback(null, new MssqlDriver(mssql, config.schema, intern));
     })
     .catch(err => {
       callback(err);
