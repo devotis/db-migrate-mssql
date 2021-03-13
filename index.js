@@ -551,7 +551,15 @@ var MssqlDriver = Base.extend({
             request.query(params[0]).then(result => {
               transaction.commit();
               resolve(result.recordset);
-            }, reject);
+            }, (error) => {
+              transaction.rollback(err => {
+                if (err) {
+                  this.log.error('Unable to rollback transaction.');
+                  this.log.error(err);
+                }
+              });
+              reject(error);
+            });
           })
         }
       }.bind(this)
