@@ -456,13 +456,12 @@ var MssqlDriver = Base.extend({
       return '"' + fieldMapping[key] + '"';
     });
     var sql = util.format(
-      'ALTER TABLE [%s].[%s] ADD CONSTRAINT [%s] FOREIGN KEY (%s) REFERENCES [%s] (%s) ON DELETE %s ON UPDATE %s',
-      this.schema,
-      tableName,
+      'ALTER TABLE %s ADD CONSTRAINT [%s] FOREIGN KEY (%s) REFERENCES [%s] (%s) ON DELETE %s ON UPDATE %s',
+      this.escapeDDL(tableName),
       keyName,
-      this.quoteDDLArr(columns),
+      this.escapeDDL(columns),
       referencedTableName,
-      referencedColumns,
+      this.escapeDDL(referencedColumns),
       rules.onDelete || 'NO ACTION',
       rules.onUpdate || 'NO ACTION'
     );
