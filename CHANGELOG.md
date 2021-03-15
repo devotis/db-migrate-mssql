@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5] - 2021-03-15
+
+### Fixed
+
+- Add foreign key query #6
+
 ## [1.1.4] - 2021-03-15
 
 ### Fixed
