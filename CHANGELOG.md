@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4] - 2021-03-15
+
+### Fixed
+
+- Now closing the connection and displaying an error log (advance to rolling back transactions on error) #5
+
 ## [1.1.3] - 2020-03-18
 
 ### Fixed
